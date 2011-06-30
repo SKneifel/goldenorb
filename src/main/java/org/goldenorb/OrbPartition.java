@@ -74,11 +74,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- *  OrbPartition, spawned from via {@link OrbPartitionProcess}, is responsible for loading
- *  input data, assigning file splits to other {@link OrbPartition} processes and coordinating with 
- *  other {@link OrbPartition} processes via the exchange of {@link Messages} and {@link Vertices}. 
- *  In addition to start up and coordination, {@link OrbPartition} processes are run responsible for 
- *  stepping through the graph algorithms themselves, via the compute method. 
+ * OrbPartition, spawned from via {@link OrbPartitionProcess}, is responsible for loading input data,
+ * assigning file splits to other {@link OrbPartition} processes and coordinating with other
+ * {@link OrbPartition} processes via the exchange of {@link Messages} and {@link Vertices}. In addition to
+ * start up and coordination, {@link OrbPartition} processes are run responsible for stepping through the
+ * graph algorithms themselves, via the compute method.
  */
 public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPartitionCommunicationProtocol,
     OrbPartitionManagerProtocol {
@@ -107,15 +107,17 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
   private int interpartitionCommunicationPort;
   private int trackerTetherCommunicationPort;
   
-//  private String hostname;
+  // private String hostname;
   
   private boolean runPartition;
   
   private boolean loadedVerticesComplete = false;
   
-  private Set<InputSplitLoaderHandler> inputSplitLoaderHandlers = Collections.synchronizedSet(new HashSet<InputSplitLoaderHandler>());
+  private Set<InputSplitLoaderHandler> inputSplitLoaderHandlers = Collections
+      .synchronizedSet(new HashSet<InputSplitLoaderHandler>());
   private Set<MessagesHandler> messagesHandlers = Collections.synchronizedSet(new HashSet<MessagesHandler>());
-  private Set<LoadVerticesHandler> loadVerticesHandlers = Collections.synchronizedSet(new HashSet<LoadVerticesHandler>());
+  private Set<LoadVerticesHandler> loadVerticesHandlers = Collections
+      .synchronizedSet(new HashSet<LoadVerticesHandler>());
   
   private InboundMessageQueue currentInboundMessageQueue;
   private InboundMessageQueue processingInboundMessageQueue;
@@ -133,7 +135,7 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
   private ExecutorService messageHandlerExecutor;
   private ExecutorService computeExecutor;
   
-  private Map<String,Vertex<?,?,?>> vertices = new HashMap<String, Vertex<?,?,?>>();
+  private Map<String,Vertex<?,?,?>> vertices = new HashMap<String,Vertex<?,?,?>>();
   
   private OrbCommunicationInterface oci = new OrbCommunicationInterface();
   
@@ -157,6 +159,7 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
     jobInProgressPath = "/GoldenOrb/" + getOrbConf().getOrbClusterName() + "/JobsInProgress/" + jobNumber;
     setPartitionID(partitionID);
     
+    LOG.debug("Constructed partition {}, basePort {}", partitionID, partitionBasePort);
     LOG.debug("Starting for job {}", jobInProgressPath);
     
     inputSplitHandlerExecutor = Executors.newFixedThreadPool(getOrbConf().getInputSplitHandlerThreads());
@@ -182,13 +185,14 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
     if (jobConf != null) {
       setOrbConf(jobConf);
       getOrbConf().setJobNumber(jobNumber);
-      LOG.debug("setOrbConf with requested, reserved", jobConf.getOrbRequestedPartitions(), jobConf.getOrbReservedPartitions());
+      LOG.debug("setOrbConf with requested {}, reserved {}", jobConf.getOrbRequestedPartitions(),
+        jobConf.getOrbReservedPartitions());
     }
     setSuperStep(0);
     setNumberOfVertices(0);
     setMessagesSent(0);
     setPercentComplete(0.0F);
-    setLeader(false);     
+    setLeader(false);
   }
   
   /**
@@ -198,9 +202,9 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
    */
   public static void main(String[] args) {
     if (args.length != 4) {
-      LOG.error("OrbPartition cannot start unless it is passed both the partitionID and the jobNumber to the Jobs OrbConfiguration");
+      LOG.error("OrbPartition cannot start unless it is passed both the partitionID and the jobNumber to the Job's OrbConfiguration.");
     }
-
+    
     LOG.debug("OrbPartition starting with args: {}", Arrays.toString(args));
     String jobNumber = args[0];
     int partitionID = Integer.parseInt(args[1]);
@@ -228,8 +232,8 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
       interpartitionCommunicationServer = RPC.getServer(this, getHostname(),
         this.interpartitionCommunicationPort, 10, false, getOrbConf());
       interpartitionCommunicationServer.start();
-      LOG.info("Starting OrbPartition Interpartition Communication Server on: " + getHostname() + ":"
-               + this.interpartitionCommunicationPort);
+      LOG.info("p{} starting OrbPartition Interpartition Communication Server on: " + getHostname() + ":"
+               + this.interpartitionCommunicationPort, getPartitionID());
     } catch (IOException e) {
       LOG.error("Failed to start OrbPartition Interpartition Communication server!!", e);
       e.printStackTrace();
@@ -240,33 +244,35 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
       trackerTetherCommunicationServer = RPC.getServer(this, getHostname(),
         this.trackerTetherCommunicationPort, getOrbConf());
       trackerTetherCommunicationServer.start();
-      LOG.info("Starting OrbPartition Tracker Tether Communication Server on: " + getHostname() + ":"
-               + this.trackerTetherCommunicationPort);
+      LOG.info("p{} starting OrbPartition Tracker Tether Communication Server on: " + getHostname() + ":"
+               + this.trackerTetherCommunicationPort, getPartitionID());
     } catch (IOException e) {
-      LOG.error("Failed to start Tracker Tether Communcation server!!", e);
+      LOG.error("Failed to start Tracker Tether Communication server!!", e);
       e.printStackTrace();
       System.exit(-1);
     }
     
-    leaderGroup = new LeaderGroup<OrbPartitionMember>(zk, new OrbPartitionCallback(), jobInProgressPath + "/OrbPartitionLeaderGroup",
-        this, OrbPartitionMember.class);
+    leaderGroup = new LeaderGroup<OrbPartitionMember>(zk, new OrbPartitionCallback(),
+        jobInProgressPath + "/OrbPartitionLeaderGroup", this, OrbPartitionMember.class);
     
-    LOG.debug("leaderGroup member paths {}", leaderGroup.getMembersPath().toString());
-    LOG.debug("requested {}, reserved {}", getOrbConf().getOrbRequestedPartitions(), getOrbConf().getOrbReservedPartitions());
+    LOG.debug("p{} leaderGroup numOfMembers {}", getPartitionID(), leaderGroup.getNumOfMembers());
+    LOG.debug("requested {}, reserved {}", getOrbConf().getOrbRequestedPartitions(), getOrbConf()
+        .getOrbReservedPartitions());
     
-//    synchronized (this) {
-//      while (leaderGroup.getNumOfMembers() < (getOrbConf().getOrbRequestedPartitions() + getOrbConf()
-//          .getOrbReservedPartitions())) {
-//        try {
-//          LOG.debug("partition {} is waiting", getPartitionID());
-//          wait(PARTITION_JOIN_TIMEOUT);
-//        } catch (InterruptedException e) {
-//          e.printStackTrace();
-//        }
-//      }
-//    }
+    // synchronized (this) {
+    // while (leaderGroup.getNumOfMembers() < (getOrbConf().getOrbRequestedPartitions() + getOrbConf()
+    // .getOrbReservedPartitions())) {
+    // try {
+    // LOG.debug("partition {} is waiting", getPartitionID());
+    // wait(PARTITION_JOIN_TIMEOUT);
+    // } catch (InterruptedException e) {
+    // e.printStackTrace();
+    // }
+    // }
+    // }
     
-    enterBarrier("rdyToInitClientsBarrier");
+    int partitionsToWaitFor = getOrbConf().getOrbRequestedPartitions() + getOrbConf().getOrbReservedPartitions();
+    enterBarrier("rdyToInitClientsBarrier", partitionsToWaitFor);
     
     initializeOrbClients();
     
@@ -282,14 +288,16 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
  */
   private void initializeOrbClients() {
     orbClients = new HashMap<Integer,OrbPartitionCommunicationProtocol>();
+    
     for (OrbPartitionMember orbPartitionMember : leaderGroup.getMembers()) {
       int count = 0;
       boolean connected = false;
-      while(count < 20 && !connected){
+      while (count < 20 && !connected) {
         try {
           orbPartitionMember.initProxy(getOrbConf());
           connected = true;
-          LOG.debug("partition {} proxy initialized for {}", getPartitionID(), orbPartitionMember.getPartitionID());
+          LOG.debug("partition {} proxy initialized for {}", getPartitionID(),
+            orbPartitionMember.getPartitionID());
         } catch (IOException e) {
           count++;
           e.printStackTrace();
@@ -303,6 +311,7 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
  * 
  */
   private void executeAsSlave() {
+    LOG.info("Partition {} executing as slave.", getPartitionID());
     if (standby) {
       waitForActivate();
     }
@@ -319,6 +328,7 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
  * 
  */
   private void executeAsLeader() {
+    LOG.info("Partition {} executing as leader.", getPartitionID());
     synchronized (this) {
       setLeader(true);
       new Thread(new HeartbeatGenerator()).start();
@@ -346,10 +356,10 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
  * 
  */
   private void loadVerticesSlave() {
-    enterBarrier("startLoadVerticesBarrier");
+    enterBarrier("startLoadVerticesBarrier", leaderGroup.getNumOfMembers());
     
     // since we are a slave we immediately jump into this barrier
-    enterBarrier("sentInputSplitsBarrier");
+    enterBarrier("sentInputSplitsBarrier", leaderGroup.getNumOfMembers());
     
     // here we are handling our InputSplits by loading and sending vertices
     while (!inputSplitLoaderHandlers.isEmpty()) {
@@ -362,22 +372,20 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
       }
     }
     
-    enterBarrier("inputSplitHandlersCompleteBarrier");
+    enterBarrier("inputSplitHandlersCompleteBarrier", leaderGroup.getNumOfMembers());
     
     // here we are handling all of the vertices that have been sent to us, and are loading them into vertices
     while (!loadVerticesHandlers.isEmpty()) {
       synchronized (this) {
         try {
           wait(1000);
-          
         } catch (InterruptedException e) {
-          // TODO Auto-generated catch block
           e.printStackTrace();
         }
       }
     }
     
-    enterBarrier("loadVerticesIntoPartitionBarrier");
+    enterBarrier("loadVerticesIntoPartitionBarrier", leaderGroup.getNumOfMembers());
     
     LOG.info("Partition " + getPartitionID() + " completed Loading vertices!!!");
     
@@ -404,7 +412,7 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
   public void compute() {
     
     if (getSuperStep() == 1) {
-      enterBarrier("superStep1Barrier");
+      enterBarrier("superStep1Barrier", leaderGroup.getNumOfMembers());
       
       processingVoteToHaltSet = new VoteToHaltSet(vertices.keySet());
       
@@ -413,17 +421,17 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
       List<List<Message<? extends Writable>>> messageList = new ArrayList<List<Message<? extends Writable>>>();
       int verticesLeft = vertices.keySet().size();
       for (Vertex<?,?,?> v : vertices.values()) {
-//        count += 1;
-//        verticesLeft -= 1;
-//        vertexList.add(v);
-//        messageList.add(new ArrayList<Message<? extends Writable>>());
-//        
-//        if (count >= getOrbConf().getVerticesPerBlock() || verticesLeft == 0) {
-//          computeExecutor.execute(new VertexComputer(vertexList, messageList));
-//          vertexList = new ArrayList<Vertex<?,?,?>>();
-//          messageList = new ArrayList<List<Message<? extends Writable>>>();
-//          count = 0;
-//        }
+        // count += 1;
+        // verticesLeft -= 1;
+        // vertexList.add(v);
+        // messageList.add(new ArrayList<Message<? extends Writable>>());
+        //
+        // if (count >= getOrbConf().getVerticesPerBlock() || verticesLeft == 0) {
+        // computeExecutor.execute(new VertexComputer(vertexList, messageList));
+        // vertexList = new ArrayList<Vertex<?,?,?>>();
+        // messageList = new ArrayList<List<Message<? extends Writable>>>();
+        // count = 0;
+        // }
         v.compute(new ArrayList());
       }
       synchronized (this) {
@@ -431,7 +439,7 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
           try {
             wait(1000);
             LOG.debug(Integer.toString(processingVoteToHaltSet.size()));
-
+            
           } catch (InterruptedException e) {
             e.printStackTrace();
           }
@@ -454,18 +462,18 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
         List<List<Message<? extends Writable>>> messageList = new ArrayList<List<Message<? extends Writable>>>();
         int verticesLeft = processingInboundMessageQueue.getVerticesWithMessages().size();
         for (String s : processingInboundMessageQueue.getVerticesWithMessages()) {
-//          count += 1;
-//          verticesLeft -= 1;
-//          vertexList.add(vertices.get(s));
-//          messageList.add(processingInboundMessageQueue.getMessage(s));
-//          
-//          if (count >= getOrbConf().getVerticesPerBlock() || verticesLeft == 0) {
-//            computeExecutor.execute(new VertexComputer(vertexList, messageList));
-//            vertexList = new ArrayList<Vertex<?,?,?>>();
-//            messageList = new ArrayList<List<Message<? extends Writable>>>();
-//            count = 0;
-//          }
-          vertices.get(s).compute((Collection)processingInboundMessageQueue.getMessage(s));
+          // count += 1;
+          // verticesLeft -= 1;
+          // vertexList.add(vertices.get(s));
+          // messageList.add(processingInboundMessageQueue.getMessage(s));
+          //
+          // if (count >= getOrbConf().getVerticesPerBlock() || verticesLeft == 0) {
+          // computeExecutor.execute(new VertexComputer(vertexList, messageList));
+          // vertexList = new ArrayList<Vertex<?,?,?>>();
+          // messageList = new ArrayList<List<Message<? extends Writable>>>();
+          // count = 0;
+          // }
+          vertices.get(s).compute((Collection) processingInboundMessageQueue.getMessage(s));
         }
         synchronized (this) {
           while (!processingVoteToHaltSet.isEmpty()) {
@@ -480,20 +488,21 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
       }
     }
     
-    enterBarrier("doneComputingVerticesBarrier", getSuperStep());
+    enterSuperStepBarrier("doneComputingVerticesBarrier", getSuperStep());
     
     outboundMessageQueue.sendRemainingMessages();
     
-    enterBarrier("doneSendingMessagesBarrier", getSuperStep());
+    enterSuperStepBarrier("doneSendingMessagesBarrier", getSuperStep());
     
-    LOG.info("Partition " + getPartitionID() + " going back to run portion " + Integer.toString(getSuperStep()));
+    LOG.info("Partition " + getPartitionID() + " going back to run portion "
+             + Integer.toString(getSuperStep()));
   }
   
   private void doneComputing() {
     computing = false;
     LOG.info("Partition: (" + Integer.toString(getPartitionID()) + ") Done computing!!!!!!");
     dumpData();
-    enterBarrier("doneDumpingDataBarrier");
+    enterBarrier("doneDumpingDataBarrier", leaderGroup.getNumOfMembers());
     try {
       ZookeeperUtils.tryToCreateNode(zk, jobInProgressPath + "/messages/complete");
     } catch (OrbZKFailure e) {
@@ -503,7 +512,6 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
   }
   
   private void dumpData() {
-    // TODO Auto-generated method stub
     Configuration conf = new Configuration();
     Job job = null;
     JobContext jobContext = null;
@@ -553,23 +561,18 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
         }
         
       } catch (IOException e) {
-        // TODO Auto-generated catch block
         tryAgain = true;
         e.printStackTrace();
       } catch (InstantiationException e) {
-        // TODO Auto-generated catch block
         tryAgain = true;
         e.printStackTrace();
       } catch (IllegalAccessException e) {
-        // TODO Auto-generated catch block
         tryAgain = true;
         e.printStackTrace();
       } catch (ClassNotFoundException e) {
-        // TODO Auto-generated catch block
         tryAgain = true;
         e.printStackTrace();
       } catch (InterruptedException e) {
-        // TODO Auto-generated catch block
         tryAgain = true;
         e.printStackTrace();
       }
@@ -615,7 +618,7 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
         }
       }
       
-      enterBarrier("messageHandlersDoneReceivingBarrier", getSuperStep());
+      enterSuperStepBarrier("messageHandlersDoneReceivingBarrier", getSuperStep());
       
       processingInboundMessageQueue = currentInboundMessageQueue;
       currentInboundMessageQueue = new InboundMessageQueue();
@@ -628,7 +631,8 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
         throw new RuntimeException(e);
       }
       setSuperStep(getSuperStep() + 1);
-      LOG.info("********Starting SuperStep " + getSuperStep() + "Partition: " + getPartitionID() + "  *********");
+      LOG.info("********Starting SuperStep " + getSuperStep() + " Partition: " + getPartitionID()
+               + "  *********");
       if (getSuperStep() > 1) {
         processingVoteToHaltSet = new VoteToHaltSet(processingInboundMessageQueue.getVerticesWithMessages());
       }
@@ -639,7 +643,7 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
  * 
  */
   private void loadVerticesLeader() {
-    enterBarrier("startLoadVerticesBarrier");
+    enterBarrier("startLoadVerticesBarrier", leaderGroup.getNumOfMembers());
     
     // Here InputSplits are sent to their constituent partitions for loading
     InputSplitAllocator inputSplitAllocator = new InputSplitAllocator(getOrbConf(), leaderGroup.getMembers());
@@ -650,7 +654,7 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
       }
     }
     
-    enterBarrier("sentInputSplitsBarrier");
+    enterBarrier("sentInputSplitsBarrier", leaderGroup.getNumOfMembers());
     
     // just like the slave we have to wait for the InputSplitHandlers to finish loading and sending vertices
     while (!inputSplitLoaderHandlers.isEmpty()) {
@@ -663,7 +667,7 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
       }
     }
     
-    enterBarrier("inputSplitHandlersCompleteBarrier");
+    enterBarrier("inputSplitHandlersCompleteBarrier", leaderGroup.getNumOfMembers());
     
     // just like the slave here we are handling all of the vertices that have been sent to us, and are loading
     // them into vertices
@@ -676,7 +680,7 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
         }
       }
     }
-    enterBarrier("loadVerticesIntoPartitionBarrier");
+    enterBarrier("loadVerticesIntoPartitionBarrier", leaderGroup.getNumOfMembers());
     
     LOG.debug("Completed Loading vertices!!!");
     
@@ -705,7 +709,7 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
           LOG.error(e.getMessage());
         }
       }
-      if ((leaderGroup.isLeader() && !isLeader()) || (!leaderGroup.isLeader() && isLeader())){
+      if ((leaderGroup.isLeader() && !isLeader()) || (!leaderGroup.isLeader() && isLeader())) {
         if (leaderGroup.isLeader()) {
           executeAsLeader();
         } else {
@@ -824,8 +828,8 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
         
         synchronized (OrbPartition.this) {
           messagesHandlers.remove(this);
-          LOG.info("Partition " + getPartitionID() + " " + OrbPartition.this + " messagesHandlerNotifying Parent "
-                   + Integer.toString(getSuperStep()));
+          LOG.info("Partition " + getPartitionID() + " " + OrbPartition.this
+                   + " messagesHandlerNotifying Parent " + Integer.toString(getSuperStep()));
           OrbPartition.this.notify();
         }
       }
@@ -1013,8 +1017,8 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
    *          barrierName
    * @param int superStep
    */
-  private void enterBarrier(String barrierName, int superStep) {
-    enterBarrier(barrierName + Integer.toString(superStep));
+  private void enterSuperStepBarrier(String barrierName, int superStep) {
+    enterBarrier(barrierName + Integer.toString(superStep), leaderGroup.getNumOfMembers());
   }
   
   /**
@@ -1022,15 +1026,16 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
    * @param String
    *          barrierName
    */
-  private void enterBarrier(String barrierName) {
-    LOG.debug("creating barrier {}", barrierName);
-    Barrier barrier = new OrbFastBarrier(getOrbConf(), jobInProgressPath + "/" + barrierName,
-        leaderGroup.getNumOfMembers(), Integer.toString(getPartitionID()), zk);
+  private void enterBarrier(String barrierName, int countToWaitFor) {
+    LOG.debug("p{} creating barrier {}", getPartitionID(), barrierName);
+    LOG.debug("{} will wait for {} partitions", barrierName, countToWaitFor);
+    Barrier barrier = new OrbFastBarrier(getOrbConf(), jobInProgressPath + "/" + barrierName, countToWaitFor,
+        Integer.toString(getPartitionID()), zk);
     try {
       barrier.enter();
-      LOG.debug("{} entered " + getPartitionID(), barrierName);
+      LOG.debug("p{} entered {}", getPartitionID(), barrierName);
     } catch (OrbZKFailure e) {
-      LOG.error("Failed to complete barrier: " + barrierName, e);
+      LOG.error("p{} failed to complete barrier {}: " + e.getMessage(), getPartitionID(), barrierName);
       e.printStackTrace();
     }
   }
@@ -1052,12 +1057,15 @@ public class OrbPartition extends OrbPartitionMember implements Runnable, OrbPar
    *          barrierName
    */
   private boolean enterAllDoneBarrier(String barrierName, boolean iAmDone) {
+    LOG.debug("p{} creating barrier {}", getPartitionID(), barrierName);
     AllDoneBarrier barrier = new OrbFastAllDoneBarrier(getOrbConf(), jobInProgressPath + "/" + barrierName,
         leaderGroup.getNumOfMembers(), Integer.toString(getPartitionID()), zk);
     try {
-      return barrier.enter(iAmDone);
+      boolean entered = barrier.enter(iAmDone);
+      LOG.debug("p{} entered {}" + getPartitionID(), barrierName);
+      return entered;
     } catch (OrbZKFailure e) {
-      LOG.error("Failed to complete barrier: " + barrierName, e);
+      LOG.error("p{} failed to complete barrier: {}" + e.getMessage(), getPartitionID(), barrierName);
       e.printStackTrace();
     }
     return false;
